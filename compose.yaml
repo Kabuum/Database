@@ -1,6 +1,7 @@
 services:
   db:
     image: postgis/postgis:18-3.6
+    platform: linux/amd64
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -20,10 +21,11 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
     volumes:
-      - ./bj_data.zip:/app/bj_data.zip:ro,Z
+      - dataset:/app/bj_data
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   data:
+  dataset:

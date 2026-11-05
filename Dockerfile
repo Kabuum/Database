@@ -6,7 +6,6 @@ ENV PYTHONUNBUFFERED=1
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY import_data.py .
-COPY bj_data.zip .
+COPY import_data.py download_data.py .
 
 CMD ["python", "import_data.py"]

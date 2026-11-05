@@ -25,7 +25,7 @@ Also, we might modify these scripts, when this is deployed with Kubernetes (it's
 
 ### Wanna setup everything
 
-This installs everything, sets up the database, unpacks `bj_data.zip`, and imports it into PostGIS.
+This installs everything, sets up the database, downloads the [v1.0.0 release](https://github.com/astep-aau/data/releases/tag/v1.0.0), and imports it into PostGIS. Allow at least 6 GB of disk space for the downloads, plus space for the extracted map and database.
 
 ```bash
 docker compose up -d --build
@@ -43,7 +43,7 @@ docker compose up -d --build db
 docker compose up -d --build get-data
 ```
 
-The importer creates `osm_nodes`, `osm_edges`, and `trajectories`, plus a `trajectory_lines` view. The trajectory table stores `taxi_id` from CSV column 1 and `trajectory_id` from CSV column 2. `trajectory_lines` creates one road-following PostGIS line per trip when queried. Use `dataset = 'traj_train_100'` when viewing the complete training data because the smaller training files overlap. The ZIP is mounted into the importer container and extracted into `bj_data/`.
+The importer creates `osm_nodes`, `osm_edges`, and `trajectories`, plus a `trajectory_lines` view. The trajectory table stores `taxi_id` from CSV column 1 and `trajectory_id` from CSV column 2. `trajectory_lines` creates one road-following PostGIS line per trip when queried. Use `dataset = 'traj_train_100'` when viewing the complete training data because the smaller training files overlap. Release files are checksum-verified and cached in the `dataset` Docker volume, so subsequent imports reuse them. The map is extracted into `bj_data/map/`.
 
 ### Wanna watch?
 

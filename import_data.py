@@ -3,15 +3,13 @@ import csv
 import io
 import json
 import os
-import zipfile
 
 import geopandas as gpd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
 
-ZIP_FILE = "bj_data.zip"
-DATA_DIR = "bj_data"
+from download_data import DATA_DIR, download_data
 TRAJECTORY_FILES = [
     "traj_train_20.csv",
     "traj_train_40.csv",
@@ -21,15 +19,6 @@ TRAJECTORY_FILES = [
     "traj_valid.csv",
     "traj_test.csv",
 ]
-
-
-def unzip():
-    if os.path.exists(DATA_DIR):
-        return
-
-    print("Unzipping data...")
-    with zipfile.ZipFile(ZIP_FILE) as zip_file:
-        zip_file.extractall(DATA_DIR)
 
 
 def insert_nodes(engine):
@@ -131,7 +120,7 @@ def main():
     if not database_url:
         raise RuntimeError("DATABASE_URL must be set")
 
-    unzip()
+    download_data()
     engine = create_engine(database_url)
     with engine.begin() as connection:
         connection.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
