@@ -12,32 +12,19 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    outputs:
-      archive_present: ${{ steps.archive.outputs.present }}
     steps:
       - name: checkout
-        uses: actions/checkout@v4
-
-      - name: check archive
-        id: archive
-        run: |
-          if [ -f bj_data.zip ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "bj_data.zip is missing; image publish skipped"
-          fi
+        uses: actions/checkout@v6
 
       - name: check python
-        run: python -m py_compile import_data.py
+        run: python -m py_compile import_data.py download_data.py
 
   build-and-push:
     needs: check
-    if: needs.check.outputs.archive_present == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: log in to ghcr
         uses: docker/login-action@v3
