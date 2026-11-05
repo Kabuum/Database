@@ -52,7 +52,7 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 360
     env:
-      KUBECONFIG: /home/actions-runner/.kube/config
+      KUBECONFIG: /etc/k3s-kubeconfig
     steps:
       - name: checkout
         uses: actions/checkout@v6
