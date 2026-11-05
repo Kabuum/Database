@@ -16,6 +16,19 @@ services:
       timeout: 5s
       retries: 12
 
+  migrate:
+    build:
+      context: .
+      dockerfile: migrations/Dockerfile
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+
   get-data:
     build: .
     environment:

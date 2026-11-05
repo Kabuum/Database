@@ -1,0 +1,5 @@
+DROP TABLE cities;
+
+CREATE TABLE test (
+  id SERIAL PRIMARY KEY
+);

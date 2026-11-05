@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: check python
-        run: python -m py_compile import_data.py download_data.py
+        run: python -m py_compile import_data.py download_data.py migrations/apply_migrations.py
 
   build-and-push:
     needs: check
@@ -47,6 +47,16 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/data:latest
             ghcr.io/${{ github.repository_owner }}/data:${{ github.sha }}
 
+      - name: build and push migration image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: migrations/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/data-migrate:latest
+            ghcr.io/${{ github.repository_owner }}/data-migrate:${{ github.sha }}
+
   deploy:
     needs: build-and-push
     runs-on: self-hosted
@@ -61,6 +71,16 @@ jobs:
         run: |
           kubectl apply -f k8s/postgres.yaml
           kubectl rollout status deployment/dataset-postgres -n main --timeout=10m
+
+      - name: run migrations
+        run: |
+          job="dataset-migrate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          sed -e "s|MIGRATION_JOB|$job|" -e "s|MIGRATION_IMAGE|ghcr.io/${{ github.repository_owner }}/data-migrate:${{ github.sha }}|" k8s/migrate.yaml | kubectl create -f -
+          if ! kubectl wait --for=condition=complete "job/$job" -n main --timeout=10m; then
+            kubectl logs "job/$job" -n main || true
+            exit 1
+          fi
+          kubectl logs "job/$job" -n main
 
       - name: import dataset if needed
         run: |

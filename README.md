@@ -25,7 +25,7 @@ Also, we might modify these scripts, when this is deployed with Kubernetes (it's
 
 ### Wanna setup everything
 
-This installs everything, sets up the database, downloads the [v1.0.0 release](https://github.com/astep-aau/data/releases/tag/v1.0.0), and imports it into PostGIS. Allow at least 6 GB of disk space for the downloads, plus space for the extracted map and database.
+This sets up the database, runs migrations, downloads the [v1.0.0 release](https://github.com/astep-aau/data/releases/tag/v1.0.0), and imports it into PostGIS. Allow at least 6 GB of disk space for the downloads, plus space for the extracted map and database.
 
 ```bash
 docker compose up -d --build
@@ -37,6 +37,16 @@ docker compose up -d --build
 docker compose up -d --build db
 ```
 
+### Run migrations
+
+Add numbered SQL files to `migrations/files/`, then run:
+
+```bash
+docker compose run --rm migrate
+```
+
+Migrations run in filename order. Applied filenames are stored in `schema_migrations`, so they are not run again.
+
 ### Just get data?
 
 ```bash
@@ -47,7 +57,7 @@ The importer creates `osm_nodes`, `osm_edges`, and `trajectories`, plus a `traje
 
 ### Kubernetes deployment
 
-Pushes to `main` build the importer image and deploy the PostGIS database and import Job in the `main` namespace. The cluster must have the existing `postgres-secret`, access to the GHCR image, enough disk space, and a self-hosted runner with a valid kubeconfig and permission to manage these resources. The PVC requests 100 GiB; the import Job uses up to 10 GiB of temporary download storage. A completed Job prevents re-imports; a failed Job is replaced on the next deployment.
+Pushes to `main` build the importer and migration images, deploy the PostGIS database, and run migrations and the import Job in the `main` namespace. The cluster must have the existing `postgres-secret`, access to the GHCR image, enough disk space, and a self-hosted runner with a valid kubeconfig and permission to manage these resources. The PVC requests 100 GiB; the import Job uses up to 10 GiB of temporary download storage. A completed Job prevents re-imports; a failed Job is replaced on the next deployment.
 
 Monitor the import with `kubectl logs -f job/dataset-import -n main`. If the import fails, the next deployment retries it and replaces any partially imported dataset tables.
 

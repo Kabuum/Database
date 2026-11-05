@@ -1,0 +1,20 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: MIGRATION_JOB
+  namespace: main
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: MIGRATION_IMAGE
+          envFrom:
+            - secretRef:
+                name: postgres-secret
+          env:
+            - name: POSTGRES_HOST
+              value: dataset-postgres.main.svc.cluster.local
