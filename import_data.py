@@ -7,6 +7,7 @@ import os
 import geopandas as gpd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL
 
 
 from download_data import DATA_DIR, download_data
@@ -118,10 +119,16 @@ def main():
     load_dotenv()
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        raise RuntimeError("DATABASE_URL must be set")
+        database_url = URL.create(
+            "postgresql+psycopg2",
+            username=os.environ["POSTGRES_USER"],
+            password=os.environ["POSTGRES_PASSWORD"],
+            host=os.environ["POSTGRES_HOST"],
+            database=os.environ["POSTGRES_DB"],
+        )
 
-    download_data()
     engine = create_engine(database_url)
+    download_data()
     with engine.begin() as connection:
         connection.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
 

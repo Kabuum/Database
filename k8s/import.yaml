@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dataset-import
+  namespace: main
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: importer
+          image: DATASET_IMAGE
+          envFrom:
+            - secretRef:
+                name: postgres-secret
+          env:
+            - name: POSTGRES_HOST
+              value: dataset-postgres.main.svc.cluster.local
+          volumeMounts:
+            - name: downloads
+              mountPath: /app/bj_data
+      volumes:
+        - name: downloads
+          emptyDir:
+            sizeLimit: 10Gi

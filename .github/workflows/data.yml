@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: dataset-deploy
+  cancel-in-progress: false
+
 permissions:
   contents: read
   packages: write
@@ -42,3 +46,35 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/data:latest
             ghcr.io/${{ github.repository_owner }}/data:${{ github.sha }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: self-hosted
+    timeout-minutes: 360
+    env:
+      KUBECONFIG: /home/actions-runner/.kube/config
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: deploy database
+        run: |
+          kubectl apply -f k8s/postgres.yaml
+          kubectl rollout status deployment/dataset-postgres -n main --timeout=10m
+
+      - name: import dataset if needed
+        run: |
+          job=$(kubectl get job dataset-import -n main --ignore-not-found -o name)
+          if [ -n "$job" ] && [ "$(kubectl get job dataset-import -n main -o jsonpath='{.status.conditions[?(@.type=="Failed")].status}')" = "True" ]; then
+            kubectl delete job dataset-import -n main --wait=true
+            job=""
+          fi
+          if [ -z "$job" ]; then
+            sed "s|DATASET_IMAGE|ghcr.io/${{ github.repository_owner }}/data:${{ github.sha }}|" k8s/import.yaml | kubectl create -f -
+          fi
+          if ! kubectl wait --for=condition=complete job/dataset-import -n main --timeout=5h; then
+            kubectl logs job/dataset-import -n main || true
+            exit 1
+          fi
+          kubectl logs job/dataset-import -n main
+
