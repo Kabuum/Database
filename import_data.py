@@ -22,18 +22,48 @@ TRAJECTORY_FILES = [
 ]
 
 
+def upsert_geodataframe(engine, frame, table, key):
+    """Load frame into an existing table, matching rows on its primary key.
+
+    The table is owned by the migrations (migrations/files/0002_dataset_tables.sql)
+    and may be referenced by views and foreign keys in task schemas, so it is
+    never dropped. Rows are loaded into a staging table and upserted.
+    """
+    staging = f"_staging_{table}"
+    frame.to_postgis(staging, engine, if_exists="replace", index=False)
+
+    columns = ", ".join(f'"{column}"' for column in frame.columns)
+    updates = ", ".join(
+        f'"{column}" = EXCLUDED."{column}"' for column in frame.columns if column != key
+    )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                f"INSERT INTO {table} ({columns}) SELECT {columns} FROM {staging} "
+                f'ON CONFLICT ("{key}") DO UPDATE SET {updates}'
+            )
+        )
+        # Remove rows no longer in the dataset. Fails (on purpose) if a task schema
+        # still references them with a foreign key.
+        connection.execute(
+            text(
+                f"DELETE FROM {table} t WHERE NOT EXISTS "
+                f'(SELECT 1 FROM {staging} s WHERE s."{key}" = t."{key}")'
+            )
+        )
+        connection.execute(text(f"DROP TABLE {staging}"))
+
+
 def insert_nodes(engine):
     print("Inserting nodes...")
     nodes = gpd.read_file(f"{DATA_DIR}/map/nodes.shp")
-    nodes.to_postgis("osm_nodes", engine, if_exists="replace", index=False)
+    upsert_geodataframe(engine, nodes, "osm_nodes", "osmid")
 
 
 def insert_edges(engine):
     print("Inserting edges...")
     edges = gpd.read_file(f"{DATA_DIR}/map/edges.shp")
-    edges.to_postgis("osm_edges", engine, if_exists="replace", index=False)
-    with engine.begin() as connection:
-        connection.execute(text("CREATE INDEX osm_edges_fid_idx ON osm_edges (fid)"))
+    upsert_geodataframe(engine, edges, "osm_edges", "fid")
 
 
 def insert_rows(cursor, query, rows):
@@ -47,19 +77,8 @@ def insert_trajectories(engine):
     print("Inserting trajectories...")
     connection = engine.raw_connection()
     cursor = connection.cursor()
-    cursor.execute("DROP VIEW IF EXISTS trajectory_lines")
-    cursor.execute("DROP TABLE IF EXISTS trajectories")
-    cursor.execute(
-        """
-        CREATE TABLE trajectories (
-            dataset text,
-            taxi_id text,
-            trajectory_id text,
-            gps_points jsonb,
-            road_points jsonb
-        )
-        """
-    )
+    # Table, index and the trajectory_lines view are created by the migrations
+    cursor.execute("TRUNCATE trajectories")
 
     trajectory_query = (
         "COPY trajectories (dataset, taxi_id, trajectory_id, gps_points, road_points) "
@@ -87,29 +106,6 @@ def insert_trajectories(engine):
 
         if rows:
             insert_rows(cursor, trajectory_query, rows)
-
-    cursor.execute(
-        "CREATE INDEX trajectories_trip_idx ON trajectories (dataset, taxi_id, trajectory_id)"
-    )
-    cursor.execute(
-        """
-        CREATE VIEW trajectory_lines AS
-        SELECT
-            t.dataset,
-            t.taxi_id,
-            t.trajectory_id,
-            ST_SetSRID(ST_MakeLine(e.geometry ORDER BY p.ordinality), 4326)::geometry(LineString, 4326) AS geometry
-        FROM trajectories t
-        CROSS JOIN LATERAL jsonb_array_elements(t.road_points)
-            WITH ORDINALITY AS p(value, ordinality)
-        JOIN osm_edges e
-            ON e.fid = (p.value->>0)::bigint
-        GROUP BY
-            t.dataset,
-            t.taxi_id,
-            t.trajectory_id
-        """
-    )
 
     connection.commit()
     connection.close()

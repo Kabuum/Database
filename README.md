@@ -39,13 +39,16 @@ docker compose up -d --build db
 
 ### Run migrations
 
-Add numbered SQL files to `migrations/files/`, then run:
-
 ```bash
 docker compose run --rm migrate
 ```
 
-Migrations run in filename order. Applied filenames are stored in `schema_migrations`, so they are not run again.
+Migrations are tracked in `schema_migrations` by their path relative to `migrations/files/`, so each file runs once.
+
+- **Shared migrations** go directly in `migrations/files/` (e.g. `0002_dataset_tables.sql`). They run first, in filename order.
+- **Task-specific migrations** go in `migrations/files/<task>/`, a folder named after the subject or task (e.g. `attribute_prediction`), numbered from `0001` within the folder. They create their objects in a schema with the same name as the folder. Task folders run after the shared files, alphabetically.
+
+`0002_dataset_tables.sql` creates the dataset tables (`osm_nodes`, `osm_edges`, `trajectories`) and the `trajectory_lines` view. The importer only loads rows into them, so task-specific migrations can safely build views and foreign keys on them (`osm_nodes.osmid` and `osm_edges.fid` are primary keys). Migrations always run before the import.
 
 ### Just get data?
 
@@ -53,7 +56,7 @@ Migrations run in filename order. Applied filenames are stored in `schema_migrat
 docker compose up -d --build get-data
 ```
 
-The importer creates `osm_nodes`, `osm_edges`, and `trajectories`, plus a `trajectory_lines` view. The trajectory table stores `taxi_id` from CSV column 1 and `trajectory_id` from CSV column 2. `trajectory_lines` creates one road-following PostGIS line per trip when queried. Use `dataset = 'traj_train_100'` when viewing the complete training data because the smaller training files overlap. Release files are checksum-verified and cached in the `dataset` Docker volume. The map is extracted into `bj_data/map/`. The importer replaces existing dataset tables when it runs.
+The importer fills `osm_nodes`, `osm_edges`, and `trajectories` (created by the migrations, together with the `trajectory_lines` view). The trajectory table stores `taxi_id` from CSV column 1 and `trajectory_id` from CSV column 2. `trajectory_lines` creates one road-following PostGIS line per trip when queried. Use `dataset = 'traj_train_100'` when viewing the complete training data because the smaller training files overlap. Release files are checksum-verified and cached in the `dataset` Docker volume. The map is extracted into `bj_data/map/`. On re-import, nodes and edges are upserted on their primary key and trajectories are reloaded; the tables themselves are never dropped.
 
 ### Kubernetes deployment
 
