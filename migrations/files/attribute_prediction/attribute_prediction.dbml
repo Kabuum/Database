@@ -1,0 +1,220 @@
+Project attribute_prediction {
+  database_type: 'PostgreSQL'
+  Note: '''
+  Transductive attribute prediction on the Beijing road network.
+  First attribute: road type (classification). Built to take more attributes
+  (speed limit, lanes, ...) without schema changes.
+  node / segment are views over the shared public.osm_nodes / public.osm_edges.
+  '''
+}
+
+// ------------------------------------------------------------------ enums
+Enum partition {
+  train
+  val
+  test
+}
+
+Enum task_type {
+  classification
+  regression
+}
+
+Enum metric_level {
+  fine    [note: 'per class (regression metrics use fine)']
+  coarse  [note: 'classes grouped by attribute_class.category']
+}
+
+Enum run_status {
+  running
+  finished
+  failed
+}
+
+// ------------------------------------------------------------------ road network (views over public.osm_*)
+Table attribute_prediction.node {
+  osm_id bigint [pk, note: 'public.osm_nodes.osmid']
+  geom "geometry(Point, 4326)" [not null]
+  street_count int
+  highway_tag text [note: 'e.g. traffic_signals, motorway_junction']
+  Note: 'VIEW over public.osm_nodes'
+}
+
+Table attribute_prediction.segment {
+  segment_id bigint [pk, note: 'public.osm_edges.fid']
+  u bigint [not null, ref: > attribute_prediction.node.osm_id, note: 'start node']
+  v bigint [not null, ref: > attribute_prediction.node.osm_id, note: 'end node']
+  length_m float [not null]
+  oneway bool [not null]
+  geom "geometry(LineString, 4326)" [not null]
+  // osm_tags (composite attribute, flattened)
+  highway text [note: 'raw OSM road type']
+  lanes text
+  maxspeed text
+  ref text
+  name text
+  bridge text
+  tunnel text
+  Note: 'VIEW over public.osm_edges'
+}
+
+// ------------------------------------------------------------------ attributes and labels
+Table attribute_prediction.attribute {
+  attribute_id int [pk, increment]
+  name text [not null, unique, note: 'e.g. road_type, speed_limit, lanes']
+  task_type task_type [not null]
+  description text
+}
+
+Table attribute_prediction.attribute_class {
+  class_id int [pk, increment]
+  attribute_id int [not null, ref: > attribute_prediction.attribute.attribute_id]
+  name text [not null]
+  category text [note: 'optional coarse grouping, e.g. highway / main / minor']
+
+  indexes {
+    (attribute_id, name) [unique]
+    (attribute_id, class_id) [unique]
+  }
+}
+
+Table attribute_prediction.label_rule {
+  attribute_id int [ref: > attribute_prediction.attribute.attribute_id]
+  version int
+  description text
+  created_at timestamp [not null, default: `now()`]
+
+  indexes {
+    (attribute_id, version) [pk]
+  }
+}
+
+Table attribute_prediction.segment_label {
+  segment_id bigint [ref: > attribute_prediction.segment.segment_id]
+  attribute_id int
+  label_rule_version int
+  class_id int [note: 'classification label']
+  value float [note: 'regression label; exactly one of class_id / value']
+
+  indexes {
+    (segment_id, attribute_id, label_rule_version) [pk]
+  }
+  Note: 'M:N relationship "labelled as"'
+}
+
+Ref: attribute_prediction.segment_label.(attribute_id, label_rule_version) > attribute_prediction.label_rule.(attribute_id, version)
+Ref: attribute_prediction.segment_label.(attribute_id, class_id) > attribute_prediction.attribute_class.(attribute_id, class_id)
+
+// ------------------------------------------------------------------ trajectory data
+Table attribute_prediction.trip {
+  trip_id bigint [pk]
+  start_time timestamp [not null]
+  end_time timestamp [not null]
+  start_pos "geometry(Point, 4326)"
+  end_pos "geometry(Point, 4326)"
+}
+
+Table attribute_prediction.traversal {
+  trip_id bigint [ref: > attribute_prediction.trip.trip_id]
+  seq int [note: 'position in the trip (partial key)']
+  segment_id bigint [not null, ref: > attribute_prediction.segment.segment_id]
+  enter_time timestamp [not null]
+  duration_s float [not null]
+  speed_mps float [not null]
+
+  indexes {
+    (trip_id, seq) [pk]
+    segment_id
+  }
+  Note: 'Weak entity owned by trip'
+}
+
+// ------------------------------------------------------------------ experiments
+Table attribute_prediction.split {
+  split_id int [pk, increment]
+  method text [not null, note: 'e.g. random, spatial']
+  attribute_id int [ref: > attribute_prediction.attribute.attribute_id, note: 'NULL = attribute-agnostic']
+}
+
+Table attribute_prediction.split_assignment {
+  split_id int [ref: > attribute_prediction.split.split_id]
+  segment_id bigint [ref: > attribute_prediction.segment.segment_id]
+  partition partition [not null]
+
+  indexes {
+    (split_id, segment_id) [pk]
+  }
+  Note: 'M:N relationship "assigned to" (label masks)'
+}
+
+Table attribute_prediction.feature_set {
+  feature_set_id int [pk, increment]
+  name text [not null]
+  version int [not null]
+
+  indexes {
+    (name, version) [unique]
+  }
+}
+
+Table attribute_prediction.feature_set_feature {
+  feature_set_id int [ref: > attribute_prediction.feature_set.feature_set_id]
+  feature_name text
+
+  indexes {
+    (feature_set_id, feature_name) [pk]
+  }
+  Note: 'Multivalued attribute feature_list'
+}
+
+Table attribute_prediction.model_run {
+  run_id int [pk, increment]
+  attribute_id int [not null]
+  label_rule_version int [not null]
+  split_id int [not null, ref: > attribute_prediction.split.split_id]
+  feature_set_id int [not null, ref: > attribute_prediction.feature_set.feature_set_id]
+  architecture text [not null, note: 'GraphSAGE / MLP / majority']
+  hyperparameters jsonb
+  seed int [not null]
+  code_version text [note: 'git commit hash']
+  started_at timestamp
+  status run_status [not null]
+}
+
+Ref: attribute_prediction.model_run.(attribute_id, label_rule_version) > attribute_prediction.label_rule.(attribute_id, version)
+
+Table attribute_prediction.epoch {
+  run_id int [ref: > attribute_prediction.model_run.run_id]
+  epoch int [note: 'partial key']
+  train_loss float
+  val_loss float
+  val_macro_f1 float [note: 'NULL for regression runs']
+
+  indexes {
+    (run_id, epoch) [pk]
+  }
+  Note: 'Weak entity owned by model_run (training log)'
+}
+
+Table attribute_prediction.prediction {
+  run_id int [ref: > attribute_prediction.model_run.run_id]
+  segment_id bigint [ref: > attribute_prediction.segment.segment_id]
+  predicted_class_id int [ref: > attribute_prediction.attribute_class.class_id, note: 'classification']
+  predicted_value float [note: 'regression; exactly one of predicted_class_id / predicted_value']
+  probabilities "float[]"
+
+  indexes {
+    (run_id, segment_id) [pk]
+  }
+  Note: 'Ternary relationship "predicts"'
+}
+
+Table attribute_prediction.metric {
+  metric_id int [pk, increment]
+  run_id int [not null, ref: > attribute_prediction.model_run.run_id]
+  partition partition [not null]
+  level metric_level [not null]
+  metric_name text [not null, note: 'macro_f1, weighted_f1, precision, recall, f1, mae, rmse']
+  class_id int [ref: > attribute_prediction.attribute_class.class_id, note: 'NULL for averaged metrics']
+  value float [not null]
+}

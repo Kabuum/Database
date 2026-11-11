@@ -38,6 +38,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully   # tables must exist before importing
 
 volumes:
   data:
