@@ -3,10 +3,16 @@
 ## Env stuff
 
 ### Must do
+Run
 
 ```bash
 cp .env.example .env
 ```
+or if on windows
+```bash
+copy .env.example .env
+```
+
 
 ### Nice to do (mostly if you want nice syntax sugar)
 
